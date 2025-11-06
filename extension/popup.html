@@ -1,0 +1,34 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>CareerPath AI</title>
+    <link rel="stylesheet" href="popup.css" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div class="container">
+      <h2>CareerPath AI</h2>
+
+      <label><b>Upload Resume (optional):</b></label>
+      <input type="file" id="resumeFile" accept=".pdf,.docx,.txt" />
+
+      <textarea id="resume" placeholder="Or paste resume text here"></textarea>
+
+      <label><b>Paste Full Job Description:</b></label>
+      <textarea id="jobDesc" placeholder="Paste the complete job description here..."></textarea>
+
+      <div class="row">
+        <button id="analyze">Analyze</button>
+        <div id="loading" style="display:none">Analyzing…</div>
+      </div>
+
+      <div id="result"></div>
+    </div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

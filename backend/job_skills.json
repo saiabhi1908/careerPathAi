@@ -1,0 +1,36 @@
+{
+  "data scientist": [
+    "python",
+    "sql",
+    "statistics",
+    "machine learning",
+    "data visualization",
+    "pandas",
+    "scikit-learn",
+    "deep learning",
+    "tensorflow",
+    "cloud (aws/gcp/azure)",
+    "feature engineering",
+    "model deployment",
+    "mlops"
+  ],
+  "data analyst": [
+    "sql",
+    "excel",
+    "data visualization",
+    "tableau",
+    "python",
+    "statistics",
+    "power bi"
+  ],
+  "ml engineer": [
+    "python",
+    "tensorflow",
+    "pytorch",
+    "mlops",
+    "model deployment",
+    "docker",
+    "kubernetes",
+    "data pipelines"
+  ]
+}
