@@ -4,93 +4,140 @@ document.getElementById("analyze").addEventListener("click", async () => {
   const resumeFile = document.getElementById("resumeFile").files[0];
   const resultBox = document.getElementById("result");
   const loading = document.getElementById("loading");
+  const atsCircle = document.getElementById("atsCircle");
+  const atsInner = atsCircle.querySelector(".inner");
 
-  if (!jobDesc && !resumeText && !resumeFile) {
-    alert("Please provide at least a resume or a job description!");
+  if (!jobDesc || (!resumeText && !resumeFile)) {
+    alert("Please provide both Job Description and Resume (text or file).");
     return;
   }
 
+  resultBox.style.display = "none";
   loading.style.display = "block";
-  resultBox.innerHTML = "";
 
   try {
     const formData = new FormData();
-    if (resumeFile) formData.append("resume", resumeFile);
-    formData.append("resume_text", resumeText);
-    formData.append("jobDescription", jobDesc);
+    formData.append("jobDesc", jobDesc);
+    formData.append("resumeText", resumeText);
+    if (resumeFile) formData.append("resumeFile", resumeFile);
 
-    const resp = await fetch("http://localhost:5000/analyze", {
+    const response = await fetch("http://localhost:5000/analyze", {
       method: "POST",
       body: formData,
     });
 
-    const data = await resp.json();
-
-    if (data.success) {
-      // Extract ATS / Match score from the raw AI text
-      const raw = data.raw || "";
-      // Try various patterns: "ATS Score: 82/100" or "ATS Score: 82" or old "Match Score: 82%"
-      let scoreMatch =
-        raw.match(/ATS Score[:\s]*([0-9]{1,3})\s*\/?\s*100/i) ||
-        raw.match(/ATS Score[:\s]*([0-9]{1,3})/i) ||
-        raw.match(/Match Score[:\s]*([0-9]{1,3})/i) ||
-        raw.match(/Match Score[:\s]*([0-9]{1,3})%/i);
-
-      const score = scoreMatch ? Math.max(0, Math.min(100, parseInt(scoreMatch[1], 10))) : null;
-
-      // Build SVG gauge HTML
-      function buildGaugeHTML(score) {
-        if (score === null) return "";
-        const pct = score;
-        // circumference for circle r=45 => ~2πr
-        // We'll animate stroke-dashoffset to represent value
-        const circumference = 2 * Math.PI * 45; // ~282.743
-        const offset = Math.round(circumference * (1 - pct / 100));
-        // choose color
-        let colorClass = "gauge-green";
-        if (pct >= 75) colorClass = "gauge-green";
-        else if (pct >= 50) colorClass = "gauge-yellow";
-        else if (pct >= 30) colorClass = "gauge-orange";
-        else colorClass = "gauge-red";
-
-        return `
-          <div class="ats-gauge-wrapper">
-            <div class="ats-gauge ${colorClass}" role="status" aria-label="ATS Score ${pct} out of 100">
-              <svg class="gauge-svg" viewBox="0 0 120 120" width="120" height="120" aria-hidden="true">
-                <!-- background circle -->
-                <circle class="gauge-bg" cx="60" cy="60" r="45" stroke-width="10" fill="none"></circle>
-                <!-- progress circle -->
-                <circle class="gauge-progress" cx="60" cy="60" r="45" stroke-width="10"
-                  stroke-dasharray="${circumference}" stroke-dashoffset="${circumference}"
-                  style="stroke-dashoffset: ${offset}; transition: stroke-dashoffset 1s cubic-bezier(.2,.9,.2,1);"></circle>
-                <!-- central text -->
-                <text x="50%" y="50%" text-anchor="middle" dy="6" class="gauge-text">${pct}</text>
-                <text x="50%" y="50%" text-anchor="middle" dy="26" class="gauge-subtext">/100</text>
-              </svg>
-              <div class="gauge-label">ATS Score</div>
-            </div>
-          </div>
-        `;
-      }
-
-      // Clean the returned HTML to avoid showing the original "Match Score" line
-      let resultHtml = data.resultHtml || "";
-      // Remove Match/ATS Score lines that appear alone (a few patterns)
-      resultHtml = resultHtml.replace(/^\s*(Match Score|ATS Score)[:\s]*[^\n<]+(\n|<br>)?/im, "");
-      // Prepend our gauge
-      const gaugeHtml = buildGaugeHTML(score);
-      resultBox.style.opacity = 0;
-      resultBox.innerHTML = gaugeHtml + resultHtml;
-      setTimeout(() => (resultBox.style.opacity = 1), 100);
-      resultBox.scrollIntoView({ behavior: "smooth" });
-    } else {
-      resultBox.innerHTML = `<p style="color:#f87171">${data.error}</p>`;
-    }
-  } catch (err) {
-    console.error(err);
-    resultBox.innerHTML =
-      "<p style='color:#f87171'>     Server not reachable. Make sure your backend is running.</p>";
-  } finally {
+    const data = await response.json();
     loading.style.display = "none";
+
+    if (!data.success) throw new Error(data.error || "Analysis failed.");
+
+    // 🧩 Debug logs
+    console.log("🧩 Data received:", data);
+    console.log("💪 Strengths:", data.strengths);
+    console.log("⚙️ Weaknesses:", data.weaknesses);
+
+    resultBox.style.display = "block";
+
+    // Animate ATS score circle
+    const score = Math.round(data.matchScore || 0);
+    let current = 0;
+    const animate = setInterval(() => {
+      current++;
+      atsCircle.style.setProperty("--pct", current);
+      atsInner.textContent = current;
+      if (current >= score) clearInterval(animate);
+    }, 20);
+
+    // Render everything
+    renderList("strengths", data.strengths || "");
+    renderList("weaknesses", data.weaknesses || "");
+    renderCards("courses", data.courses || []);
+    renderCards("projects", data.projects || []);
+    renderCards("jobs", data.jobs || []);
+
+    document.getElementById("motivation").textContent =
+      data.motivation ||
+      "Keep learning and pushing forward — your growth is just beginning!";
+  } catch (err) {
+    loading.style.display = "none";
+    alert("❌ " + err.message);
   }
 });
+
+document.getElementById("clear").addEventListener("click", () => {
+  ["jobDesc", "resume"].forEach((id) => (document.getElementById(id).value = ""));
+  document.getElementById("resumeFile").value = "";
+  document.getElementById("result").style.display = "none";
+  document.getElementById("loading").style.display = "none";
+});
+
+
+// ✅ NEW ROBUST renderList FUNCTION (handles multiple formats cleanly)
+function renderList(id, text) {
+  const ul = document.getElementById(id);
+  ul.innerHTML = "";
+
+  if (!text || typeof text !== "string" || text.trim().length === 0) {
+    ul.innerHTML = "<li class='empty'>Not found.</li>";
+    return;
+  }
+
+  // Normalize text
+  let cleaned = text
+    .replace(/\r/g, "")
+    .replace(/•/g, "\n-") // convert bullet dots to newlines
+    .replace(/✅|⚙️|💪|👉/g, "") // remove emojis
+    .replace(/\n{2,}/g, "\n"); // remove extra empty lines
+
+  // Split by newline, or fallback by period or semicolon
+  let lines = cleaned
+    .split(/\n|\.|;/)
+    .map((l) => l.trim().replace(/^[-\d\.\)]*\s*/, "")) // remove list numbering
+    .filter((l) => l.length > 1 && !l.toLowerCase().includes("weaknesses") && !l.toLowerCase().includes("strengths"));
+
+  if (lines.length === 0) {
+    ul.innerHTML = `<li>${text}</li>`;
+    return;
+  }
+
+  lines.forEach((line) => {
+    const li = document.createElement("li");
+    li.textContent = line;
+    ul.appendChild(li);
+  });
+}
+
+
+// ✅ Render recommended items (courses, projects, jobs)
+function renderCards(id, items) {
+  const container = document.getElementById(id);
+  container.innerHTML = "";
+
+  if (!items.length) {
+    container.innerHTML = "<p class='empty'>No data available.</p>";
+    return;
+  }
+
+  items.forEach((item) => {
+    const div = document.createElement("div");
+    div.className = "item";
+
+    // ✅ If link exists → make the title itself clickable
+    if (item.link) {
+      const link = document.createElement("a");
+      link.href = item.link;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = item.title || "Untitled";
+      link.className = "link-title";
+      div.appendChild(link);
+    } else {
+      const h4 = document.createElement("h4");
+      h4.textContent = item.title || "Untitled";
+      div.appendChild(h4);
+    }
+
+    container.appendChild(div);
+  });
+}
+

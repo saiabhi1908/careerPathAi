@@ -1,32 +1,82 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <title>CareerPath AI</title>
-    <link rel="stylesheet" href="popup.css" />
     <link
       href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
+    <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
     <div class="container">
-      <h2>CareerPath AI</h2>
+      <h1>🚀 CareerPath AI</h1>
+      <p class="subtitle">
+        Your personal AI mentor for career insights, ATS score, and learning path.
+      </p>
 
-      <label><b>Upload Resume (optional):</b></label>
-      <input type="file" id="resumeFile" accept=".pdf,.docx,.txt" />
+      <div class="input-area">
+        <textarea
+          id="jobDesc"
+          placeholder="📝 Paste the Job Description here..."
+        ></textarea>
 
-      <textarea id="resume" placeholder="Or paste resume text here"></textarea>
+        <textarea
+          id="resume"
+          placeholder="📄 Paste your Resume here (or upload below)..."
+        ></textarea>
 
-      <label><b>Paste Full Job Description:</b></label>
-      <textarea id="jobDesc" placeholder="Paste the complete job description here..."></textarea>
+        <input type="file" id="resumeFile" accept=".pdf,.docx,.txt" />
 
-      <div class="row">
-        <button id="analyze">Analyze</button>
-        <div id="loading" style="display:none">Analyzing…</div>
+        <div class="button-row">
+          <button id="analyze">Analyze</button>
+          <button id="clear" class="secondary">Clear</button>
+        </div>
       </div>
 
-      <div id="result"></div>
+      <div id="loading">Analyzing your profile... ⏳</div>
+
+      <div id="result">
+        <div class="score-section">
+          <div id="atsCircle" class="circle" style="--pct: 0">
+            <div class="inner">0</div>
+          </div>
+          <p class="score-label">ATS Score</p>
+        </div>
+
+        <div class="sections">
+          <div class="block">
+            <h2>💪 Strengths</h2>
+            <ul id="strengths" class="list"></ul>
+          </div>
+
+          <div class="block">
+            <h2>⚙️ Weaknesses / Improvement Areas</h2>
+            <ul id="weaknesses" class="list"></ul>
+          </div>
+
+          <div class="block">
+            <h2>🎓 Recommended Courses</h2>
+            <div class="card-container" id="courses"></div>
+          </div>
+
+          <div class="block">
+            <h2>🧩 Recommended Projects</h2>
+            <div class="card-container" id="projects"></div>
+          </div>
+
+          <div class="block">
+            <h2>💼 Suggested Jobs</h2>
+            <div class="card-container" id="jobs"></div>
+          </div>
+
+          <div class="block">
+            <h2>💬 Motivational Note</h2>
+            <p id="motivation"></p>
+          </div>
+        </div>
+      </div>
     </div>
 
     <script src="popup.js"></script>

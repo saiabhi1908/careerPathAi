@@ -11,6 +11,7 @@ dotenv.config();
 const app = express();
 app.use(cors());
 app.use(express.json());
+
 const upload = multer({ dest: "uploads/" });
 
 const OPENROUTER_MODEL =
@@ -28,7 +29,7 @@ const PREFERRED_DOMAINS = [
   "futurelearn.com",
 ];
 
-// 🔍 Find course URLs using SerpAPI
+// 🔍 Course URL finder
 async function findCourseUrl(query) {
   if (!SERPAPI_KEY) return null;
   try {
@@ -49,164 +50,38 @@ async function findCourseUrl(query) {
     }
     for (const r of results) if (r.link) return r.link;
     return null;
-  } catch (e) {
-    console.warn("SerpAPI error:", e?.message || e);
+  } catch {
     return null;
   }
 }
 
-// 🧠 Extract both Courses and Projects sections from AI text
-function extractSections(text) {
-  const courseMatch = text.match(
-    /(Recommended Courses[:\s]*)([\s\S]*?)(?=(Recommended Projects|Relevant Projects|Motivational Note|$))/i
-  );
-  const projectMatch = text.match(
-    /(Recommended Projects|Relevant Projects)[:\s]*([\s\S]*?)(?=(Motivational Note|$))/i
-  );
-
-  const before = text.slice(0, courseMatch?.index || 0);
-  const coursesBlock = courseMatch ? courseMatch[2].trim() : "";
-  const projectsBlock = projectMatch ? projectMatch[2].trim() : "";
-  const after =
-    text.slice(
-      projectMatch
-        ? projectMatch.index + projectMatch[0].length + (projectMatch[2]?.length || 0)
-        : text.length
-    ) || "";
-
-  const cleanLine = (l) =>
-    l
-      .trim()
-      .replace(/^[\d\-\.\)]*\s*/, "")
-      .trim();
-
-  const isMeaningful = (l) =>
-    l.length > 2 && !/^(?:\d+\.?|[-–—•]+)$/.test(l);
-
-  const courseLines = coursesBlock
-    ? coursesBlock.split("\n").map(cleanLine).filter(isMeaningful)
-    : [];
-
-  const projectLines = projectsBlock
-    ? projectsBlock.split("\n").map(cleanLine).filter(isMeaningful)
-    : [];
-
-  return { before, courseLines, projectLines, after };
+// 🧩 Section extraction — robust for all GPT formatting styles
+function extractSection(text, start, end) {
+  if (!text || !start) return "";
+  const startIdx = text.toLowerCase().indexOf(start.toLowerCase());
+  if (startIdx === -1) return "";
+  const endIdx = end
+    ? text.toLowerCase().indexOf(end.toLowerCase(), startIdx + start.length)
+    : -1;
+  const section =
+    endIdx !== -1
+      ? text.slice(startIdx + start.length, endIdx)
+      : text.slice(startIdx + start.length);
+  return section
+    .replace(/\*\*/g, "")
+    .replace(/[-•✅⚙️⚠️]/g, "")
+    .replace(/\r/g, "")
+    .trim();
 }
 
-// 🔎 Build clickable job links card
-function buildJobsCard(keywords = [], location = "") {
-  if (!keywords || keywords.length === 0) return "";
-  const combined = encodeURIComponent(keywords.join(" "));
-  const locParam = encodeURIComponent(location || "");
-  const lines = [];
-
-  const indeed = `https://www.indeed.com/jobs?q=${combined}${locParam ? `&l=${locParam}` : ""}`;
-  const linkedin = `https://www.linkedin.com/jobs/search?keywords=${combined}${locParam ? `&location=${locParam}` : ""}`;
-  const google = `https://www.google.com/search?q=${combined}+jobs${locParam ? `+${locParam}` : ""}`;
-
-  lines.push(`<li><a href="${indeed}" target="_blank" rel="noopener noreferrer">View jobs matching "${escapeHtml(keywords.join(" "))}" on Indeed</a></li>`);
-  lines.push(`<li><a href="${linkedin}" target="_blank" rel="noopener noreferrer">View jobs matching "${escapeHtml(keywords.join(" "))}" on LinkedIn</a></li>`);
-  lines.push(`<li><a href="${google}" target="_blank" rel="noopener noreferrer">Search similar jobs on Google</a></li>`);
-
-  const kw = keywords.slice(0, 5);
-  kw.forEach((k) => {
-    const q = encodeURIComponent(k);
-    lines.push(
-      `<li style="font-size:0.95em"><a href="https://www.indeed.com/jobs?q=${q}${locParam ? `&l=${locParam}` : ""}" target="_blank" rel="noopener noreferrer">Indeed: ${escapeHtml(k)} jobs</a> · <a href="https://www.linkedin.com/jobs/search?keywords=${q}${locParam ? `&location=${locParam}` : ""}" target="_blank" rel="noopener noreferrer">LinkedIn</a></li>`
-    );
-  });
-
-  return `
-    <div class="job-card">
-      <h3>🔎 Recommended Job Searches</h3>
-      <ol class="job-list">${lines.join("\n")}</ol>
-    </div>
-  `;
-}
-
-// 🧠 Simple keyword extractor
-function extractKeywordsFromText(text, maxKeywords = 5) {
-  if (!text) return [];
-  const stopwords = new Set([
-    "the","and","for","with","that","this","your","you","from","are","have","has",
-    "will","can","skills","experience","years","year","work","project","projects",
-    "education","resume","profile","html","css","javascript"
-  ]);
-  const words = text
-    .replace(/[^a-zA-Z0-9\s\-]/g, " ")
-    .toLowerCase()
-    .split(/\s+/)
-    .filter((w) => w.length > 2 && !stopwords.has(w));
-  const freq = {};
-  words.forEach((w) => (freq[w] = (freq[w] || 0) + 1));
-  return Object.keys(freq).sort((a, b) => freq[b] - freq[a]).slice(0, maxKeywords);
-}
-
-// 💡 Build clickable course HTML card
-function buildCoursesCard(courses) {
-  if (!courses || courses.length === 0) return "";
-  const itemsHtml = courses
-    .map((c) => {
-      if (c.url) {
-        return `<li><a href="${c.url}" target="_blank" rel="noopener noreferrer">${escapeHtml(
-          c.title
-        )}</a>${
-          c.provider
-            ? ` — <span style="opacity:0.85">${escapeHtml(c.provider)}</span>`
-            : ""
-        }</li>`;
-      } else {
-        const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(
-          c.title + (c.provider ? " " + c.provider : "")
-        )}`;
-        return `<li><a href="${searchUrl}" target="_blank" rel="noopener noreferrer">${escapeHtml(
-          c.title
-        )}</a>${
-          c.provider
-            ? ` — <span style="opacity:0.85">${escapeHtml(c.provider)}</span>`
-            : ""
-        } <small style="opacity:0.6">(unverified)</small></li>`;
-      }
-    })
-    .join("\n");
-
-  return `
-    <div class="course-card">
-      <h3>🎓 Recommended Courses</h3>
-      <ol class="course-list">${itemsHtml}</ol>
-    </div>
-  `;
-}
-
-// 💡 Build project ideas card
-function buildProjectsCard(projects) {
-  if (!projects || projects.length === 0) return "";
-  const itemsHtml = projects.map((p) => `<li>${escapeHtml(p)}</li>`).join("\n");
-  return `
-    <div class="project-card">
-      <h3>🧠 Recommended Projects</h3>
-      <ol class="project-list">${itemsHtml}</ol>
-    </div>
-  `;
-}
-
-// ✨ Escape HTML
-function escapeHtml(s) {
-  return String(s)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-// 🚀 Main endpoint
-app.post("/analyze", upload.single("resume"), async (req, res) => {
+// ✅ /analyze endpoint
+app.post("/analyze", upload.single("resumeFile"), async (req, res) => {
   try {
     let resumeContent = "";
-    let jobDescription = "";
+    const jobDescription = req.body.jobDesc || "";
     const userName = req.body.userName || "your friend";
 
-    // 🧾 Handle uploaded resume
+    // 🗂 Read resume file or text
     if (req.file) {
       const filePath = req.file.path;
       const ext = req.file.originalname.split(".").pop().toLowerCase();
@@ -222,13 +97,11 @@ app.post("/analyze", upload.single("resume"), async (req, res) => {
         resumeContent = fs.readFileSync(filePath, "utf8");
       } else {
         fs.unlinkSync(filePath);
-        return res.status(400).json({ error: "Unsupported file type" });
+        return res.status(400).json({ error: "Unsupported file type." });
       }
       fs.unlinkSync(filePath);
-      jobDescription = req.body.jobDescription || "";
     } else {
-      resumeContent = req.body.resume_text || "";
-      jobDescription = req.body.jobDescription || "";
+      resumeContent = req.body.resumeText || "";
     }
 
     if (!resumeContent || !jobDescription) {
@@ -237,36 +110,33 @@ app.post("/analyze", upload.single("resume"), async (req, res) => {
         .json({ error: "Missing resume or job description." });
     }
 
-    // 🧠 Prompt
+    // 🧠 Updated AI prompt to ensure Weaknesses section always appears
     const prompt = `
-You are "CareerPath AI" — a friendly, encouraging career mentor and AI coach.
-Your goal is to help ${userName} grow, improve, and feel motivated.
+You are "CareerPath AI" — a warm, expert career mentor.
+Compare the provided resume and job description carefully, and respond **exactly in this structure** (include all headers even if empty):
 
-Speak directly to ${userName} using “you” and “your”.
-Your tone should be warm, positive, supportive, and conversational — like a good friend giving career feedback.
+ATS Score: XX/100
 
-Compare the following resume and job description carefully, and respond in this exact structure:
+Strengths:
+- 5–6 detailed strengths.
 
-1. ATS Score: (0–100%) — **Begin your response with a single line in the exact format**:
-   ATS Score: XX/100
+Weaknesses / Improvement Areas:
+- 5–6 skill or experience gaps or areas to improve.
 
-2. Strengths:
-   - Highlight 3–5 real strengths or achievements.
+Recommended Courses:
+- 6 course topics to fill gaps.
 
-3. Weak/Missing Areas:
-   - List 2–4 key areas to improve.
+Recommended Projects:
+- 6 project ideas aligned to the field.
 
-4. Recommended Courses:
-   - Suggest 4–6 course titles with providers.
+Recommended Jobs:
+- 6 realistic job titles.
 
-5. Recommended Projects:
-   - Suggest 3–4 practical project ideas.
-
-6. Motivational Note:
-   - End with 2–3 sentences of positive encouragement.
+Motivational Note:
+A short, human-like encouragement paragraph for ${userName}.
 `;
 
-    // 🧩 Call OpenRouter API
+    // 🧩 Send request to OpenRouter
     const aiResponse = await axios.post(
       "https://openrouter.ai/api/v1/chat/completions",
       {
@@ -278,7 +148,7 @@ Compare the following resume and job description carefully, and respond in this 
           },
         ],
         temperature: 0.9,
-        max_tokens: 1600,
+        max_tokens: 2000,
       },
       {
         headers: {
@@ -288,82 +158,106 @@ Compare the following resume and job description carefully, and respond in this 
       }
     );
 
-    let aiText =
-      aiResponse.data.choices?.[0]?.message?.content?.trim() ||
-      "No response from AI.";
-
-    // 🧠 Extract sections
-    const { before, courseLines, projectLines, after } = extractSections(aiText);
-
-    // Parse courses
-    const parsedCourses = [];
-    for (const line of courseLines) {
-      const cleaned = line.replace(/^\s*[\d\-\.\)]\s*/, "").trim();
-      let title = cleaned;
-      let provider = "";
-      const m1 = cleaned.match(/^(.*?)[\-\–—]\s*(.+)$/);
-      const m2 = cleaned.match(/^(.*)\(([^)]+)\)$/);
-      const m3 = cleaned.match(/^(.*),\s*([^,]+)$/);
-      if (m1) {
-        title = m1[1].trim();
-        provider = m1[2].trim();
-      } else if (m2) {
-        title = m2[1].trim();
-        provider = m2[2].trim();
-      } else if (m3) {
-        title = m3[1].trim();
-        provider = m3[2].trim();
-      }
-      const providerGuess =
-        provider ||
-        (
-          cleaned.match(
-            /\b(Coursera|Udemy|edX|LinkedIn|Pluralsight|IBM|Google|AWS)\b/i
-          ) || [null, null]
-        )[1] ||
-        "";
-      parsedCourses.push({ title, provider: providerGuess });
+    // 🧾 Process AI response
+    let aiText = "No AI response.";
+    try {
+      const content = aiResponse?.data?.choices?.[0]?.message?.content;
+      aiText = content?.trim?.() || "No AI output found.";
+    } catch (e) {
+      console.error("AI response parsing failed:", e.message);
     }
 
-    // 🔗 Find URLs for courses
-    const verified = [];
+    console.log("🧠 Raw AI Output:\n", aiText);
+
+    // Extract all sections robustly
+    const atsMatch = aiText.match(/ATS Score[:\s]*([0-9]{1,3})/i);
+    const atsScore = atsMatch ? parseInt(atsMatch[1]) : 0;
+
+    const strengths = extractSection(aiText, "Strengths:", "Weaknesses");
+    const weaknesses = extractSection(
+      aiText,
+      "Weaknesses / Improvement Areas:",
+      "Recommended Courses"
+    );
+    const coursesText = extractSection(
+      aiText,
+      "Recommended Courses:",
+      "Recommended Projects"
+    );
+    const projectsText = extractSection(
+      aiText,
+      "Recommended Projects:",
+      "Recommended Jobs"
+    );
+    const jobsText = extractSection(
+      aiText,
+      "Recommended Jobs:",
+      "Motivational Note"
+    );
+    const motivation = extractSection(aiText, "Motivational Note:", "");
+
+    // 💡 Safe fallback for weaknesses
+    const safeWeaknesses =
+      weaknesses && weaknesses.trim().length > 2
+        ? weaknesses
+        : "No clear weaknesses detected — consider deepening skills in advanced tools, team collaboration, and emerging technologies.";
+
+    // 🔹 Helper to turn text into list items
+    function toListItems(text) {
+      if (!text) return [];
+      return text
+        .split(/\n|\.|;/)
+        .map((t) => t.trim().replace(/^[-•\d\.\)]*\s*/, ""))
+        .filter((t) => t.length > 1)
+        .slice(0, 6);
+    }
+
+    const courseLines = toListItems(coursesText);
+    const projectLines = toListItems(projectsText);
+    const jobLines = toListItems(jobsText);
+
+    // 🌐 Fetch verified course URLs
+    const verifiedCourses = [];
     await Promise.all(
-      parsedCourses.map(async (c) => {
-        const q = c.title + (c.provider ? " " + c.provider : "");
-        const foundUrl = await findCourseUrl(q);
-        verified.push({ title: c.title, provider: c.provider || "", url: foundUrl });
+      courseLines.map(async (title) => {
+        const foundUrl = await findCourseUrl(title);
+        verifiedCourses.push({ title, link: foundUrl });
       })
     );
 
-    // ✅ Final HTML builder (updated)
-    const coursesCardHtml = buildCoursesCard(verified);
-    const jobsKeywords = extractKeywordsFromText(resumeContent || before || "");
-    const jobsCardHtml = buildJobsCard(jobsKeywords, req.body.location || "");
-    const projectsCardHtml = buildProjectsCard(projectLines);
-    const beforePart = escapeHtml(before);
-    const afterPart = escapeHtml(after);
+    const projects = projectLines.map((p) => ({ title: p }));
+    const jobs = jobLines.map((j) => ({
+      title: j,
+      link: `https://www.google.com/search?q=${encodeURIComponent(j)}+jobs`,
+    }));
 
-    const finalHtml = `${beforePart}${coursesCardHtml}${jobsCardHtml}${projectsCardHtml}${afterPart}`.replace(
-      /\n/g,
-      "<br>"
-    );
+    // 🧩 Debug logs
+    console.log("\n💪 Strengths:\n", strengths);
+    console.log("\n⚙️ Weaknesses:\n", weaknesses);
+    console.log("\n📘 Courses:\n", courseLines);
+    console.log("\n🧩 Projects:\n", projectLines);
+    console.log("\n💼 Jobs:\n", jobLines);
+    console.log("\n💬 Motivation:\n", motivation);
 
     res.json({
       success: true,
-      resultHtml: finalHtml,
-      raw: aiText,
-      courses: verified,
-      projects: projectLines,
-      job_keywords: jobsKeywords,
+      matchScore: atsScore,
+      strengths,
+      weaknesses: safeWeaknesses,
+      courses: verifiedCourses,
+      projects,
+      jobs,
+      motivation,
     });
   } catch (err) {
-    console.error("❌ Backend error:", err.response?.data || err.message || err);
+    console.error("❌ Backend error:", err.response?.data || err.message);
     res
       .status(500)
       .json({ success: false, error: "AI analysis failed. Try again later." });
   }
 });
 
+// 🚀 Start server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () =>
   console.log(`✅ Server running on http://localhost:${PORT}`)
